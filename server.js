@@ -18,14 +18,13 @@ const UPLOADS_PORT = parseInt(process.env.UPLOADS_PORT || '3001', 10);
 const UPLOADS_HOST = process.env.UPLOADS_HOST || 'http://localhost';
 const AWS_S3_BUCKET = process.env.AWS_S3_BUCKET;
 const NGROK_URL = process.env.NGROK_URL;
-const USING_EC2 = process.env.USING_EC2 === 'true';
+const PUBLIC_IP = process.env.PUBLIC_IP || 'YOUR_EC2_PUBLIC_IP';
 
-// Utility to find a free port
+// Utility to find a free port (optional, but sticking to your provided port if possible)
 function getAvailablePort(defaultPort, cb) {
   const server = net.createServer();
   let called = false;
 
-  // On error (e.g. port in use), try random open port
   server.on('error', () => {
     server.listen(0);
   });
@@ -39,7 +38,6 @@ function getAvailablePort(defaultPort, cb) {
 
   server.listen(defaultPort);
 }
-
 
 let s3;
 if (USE_S3) {
@@ -69,17 +67,6 @@ function getPublicUrl(roomCode, type, fileName) {
     return `${NGROK_URL}/uploads/${roomCode}/${type}/${fileName}`;
   }
   return `${UPLOADS_HOST}:${UPLOADS_PORT}/uploads/${roomCode}/${type}/${fileName}`;
-}
-
-// --- EC2 public DNS/IP helper ---
-function getEc2Public(cb) {
-  exec("curl -s http://169.254.169.254/latest/meta-data/public-hostname", (err, stdout) => {
-    if (!err && stdout && stdout.trim()) return cb(stdout.trim());
-    exec("curl -s https://api.ipify.org", (err2, stdout2) => {
-      if (!err2 && stdout2 && stdout2.trim()) return cb(stdout2.trim());
-      cb('YOUR_EC2_PUBLIC_IP_OR_DNS');
-    });
-  });
 }
 
 // --- Express for Uploads API only ---
@@ -271,31 +258,17 @@ app.post('/upload/pdf', upload.single('file'), async (req, res) => {
 // ---- Main HTTP Server (NO STATIC) ----
 getAvailablePort(PORT_HTTP, (actualPort) => {
   const server = http.createServer(app);
-  server.listen(actualPort, () => {
-    if (USING_EC2) {
-      getEc2Public((publicHost) => {
-        const httpUrl = `http://${publicHost}:${actualPort}`;
-        console.log(`🌐 HTTP/API server running at: ${httpUrl}`);
-        console.log(`\nUse this URL in your browser or API clients.`);
-      });
-    } else {
-      console.log(`🌐 HTTP/API server running at: http://localhost:${actualPort}`);
-    }
+  server.listen(actualPort, '0.0.0.0', () => {
+    console.log(`🌐 HTTP/API server running at: http://${PUBLIC_IP}:${actualPort}`);
+    console.log(`\nUse this URL in your browser or API clients.`);
   });
 
   // ---- WebSocket Server ----
   getAvailablePort(PORT_WS, (actualWsPort) => {
-    const wss = new WebSocket.Server({ port: actualWsPort });
-    if (USING_EC2) {
-      getEc2Public((publicHost) => {
-        const wsUrl = `ws://${publicHost}:${actualWsPort}`;
-        console.log(`🚀 WebSocket server running at: ${wsUrl}`);
-        console.log(`\n🔗 Use this WebSocket URL in your frontend/Unity: "${wsUrl}"`);
-        console.log('Make sure your EC2 security group allows inbound TCP on this port!');
-      });
-    } else {
-      console.log(`🚀 WebSocket server running at: ws://localhost:${actualWsPort}`);
-    }
+    const wss = new WebSocket.Server({ port: actualWsPort, host: '0.0.0.0' });
+    console.log(`🚀 WebSocket server running at: ws://${PUBLIC_IP}:${actualWsPort}`);
+    console.log(`\n🔗 Use this WebSocket URL in your frontend/Unity: "ws://${PUBLIC_IP}:${actualWsPort}"`);
+    console.log('Make sure your EC2 security group allows inbound TCP on this port!');
 
     // ---- ROOM MANAGEMENT ----
     wss.on('connection', (ws) => {
@@ -371,7 +344,7 @@ if (!USE_S3) {
   const uploadsApp = express();
   const uploadsPath = path.join(__dirname, 'uploads');
   uploadsApp.use('/uploads', express.static(uploadsPath));
-  uploadsApp.listen(UPLOADS_PORT, () => {
+  uploadsApp.listen(UPLOADS_PORT, '0.0.0.0', () => {
     if (NGROK_URL) {
       console.log(`🗂️ Uploads file server running at ${NGROK_URL}/uploads/`);
     }
