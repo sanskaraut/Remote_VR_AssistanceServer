@@ -10,13 +10,14 @@ const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
 const { v4: uuidv4 } = require('uuid');
 
 // ENV VARS
-const PORT_HTTP = process.env.PORT_HTTP || 5500;
-const PORT_WS = process.env.PORT_WS || 8081;
+const PORT_HTTP = parseInt(process.env.PORT_HTTP || '5500', 10);
+const PORT_WS = parseInt(process.env.PORT_WS || '8081', 10);
 const USE_S3 = process.env.USE_S3 === 'true';
-const UPLOADS_PORT = process.env.UPLOADS_PORT || 3001;
+const UPLOADS_PORT = parseInt(process.env.UPLOADS_PORT || '3001', 10);
 const UPLOADS_HOST = process.env.UPLOADS_HOST || 'http://localhost';
 const AWS_S3_BUCKET = process.env.AWS_S3_BUCKET;
 const NGROK_URL = process.env.NGROK_URL;
+const USING_EC2 = process.env.USING_EC2 === 'true';
 
 const app = express();
 const server = http.createServer(app);
@@ -79,6 +80,7 @@ app.post('/upload/image', upload.single('file'), async (req, res) => {
       await s3.send(new PutObjectCommand(uploadParams));
       url = `https://${AWS_S3_BUCKET}.s3.amazonaws.com/${roomCode}/images/${fileName}`;
       console.log(`[IMAGE] Uploaded to S3: ${url}`);
+      fs.unlinkSync(file.path);
     } else {
       const destDir = getRoomUploadDir(roomCode, 'images');
       fs.mkdirSync(destDir, { recursive: true });
@@ -131,6 +133,7 @@ app.post('/upload/video', upload.single('file'), async (req, res) => {
       await s3.send(new PutObjectCommand(uploadParams));
       url = `https://${AWS_S3_BUCKET}.s3.amazonaws.com/${roomCode}/videos/${fileName}`;
       console.log(`[VIDEO] Uploaded to S3: ${url}`);
+      fs.unlinkSync(file.path);
     } else {
       const destDir = getRoomUploadDir(roomCode, 'videos');
       fs.mkdirSync(destDir, { recursive: true });
@@ -207,6 +210,7 @@ app.post('/upload/pdf', upload.single('file'), async (req, res) => {
           await s3.send(new PutObjectCommand(uploadParams));
           urls.push(`https://${AWS_S3_BUCKET}.s3.amazonaws.com/${s3Key}`);
           console.log(`[PDF] Uploaded page to S3: ${s3Key}`);
+          fs.unlinkSync(pagePath);
         } catch (err) {
           console.error(`[PDF] Error uploading PDF page to S3:`, err);
           return res.status(500).json({ success: false, message: "S3 upload failed", error: err.message });
@@ -243,14 +247,43 @@ app.post('/upload/pdf', upload.single('file'), async (req, res) => {
   });
 });
 
+// --- Function to get EC2 Public IP/DNS ---
+function getEc2Public(cb) {
+  exec("curl -s http://169.254.169.254/latest/meta-data/public-hostname", (err, stdout) => {
+    if (!err && stdout && stdout.trim()) return cb(stdout.trim());
+    // fallback: external service
+    exec("curl -s https://api.ipify.org", (err2, stdout2) => {
+      if (!err2 && stdout2 && stdout2.trim()) return cb(stdout2.trim());
+      cb('YOUR_EC2_PUBLIC_IP_OR_DNS');
+    });
+  });
+}
+
 // ---- Main HTTP Server ----
 server.listen(PORT_HTTP, () => {
-  console.log(`🌐 HTTP/API server running at: http://localhost:${PORT_HTTP}`);
+  if (USING_EC2) {
+    getEc2Public((publicHost) => {
+      const httpUrl = `http://${publicHost}:${PORT_HTTP}`;
+      console.log(`🌐 HTTP/API server running at: ${httpUrl}`);
+      console.log(`\nUse this URL in your browser or API clients.`);
+    });
+  } else {
+    console.log(`🌐 HTTP/API server running at: http://localhost:${PORT_HTTP}`);
+  }
 });
 
 // ---- WebSocket Server ----
 const wss = new WebSocket.Server({ port: PORT_WS });
-console.log(`🚀 WebSocket server running at: ws://localhost:${PORT_WS}`);
+if (USING_EC2) {
+  getEc2Public((publicHost) => {
+    const wsUrl = `ws://${publicHost}:${PORT_WS}`;
+    console.log(`🚀 WebSocket server running at: ${wsUrl}`);
+    console.log(`\n🔗 Use this WebSocket URL in your frontend/Unity: "${wsUrl}"`);
+    console.log('Make sure your EC2 security group allows inbound TCP on this port!');
+  });
+} else {
+  console.log(`🚀 WebSocket server running at: ws://localhost:${PORT_WS}`);
+}
 
 // ---- ROOM MANAGEMENT ----
 wss.on('connection', (ws) => {
@@ -332,4 +365,3 @@ if (!USE_S3) {
     console.log(`🗂️ Static folder being served: ${uploadsPath}`);
   });
 }
- 
