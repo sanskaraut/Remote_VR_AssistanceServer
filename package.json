@@ -1,0 +1,27 @@
+{
+  "name": "annotation-web",
+  "version": "1.0.0",
+  "description": "Web UI and WebSocket server for Unity annotation control",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "author": "YourName",
+  "license": "MIT",
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.837.0",
+    "aws-sdk": "^2.1692.0",
+    "axios": "^1.10.0",
+    "child_process": "^1.0.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.6.0",
+    "express": "^4.21.2",
+    "helmet": "^8.1.0",
+    "lodash": "^4.17.21",
+    "minimist": "^1.2.8",
+    "multer": "^2.0.1",
+    "ws": "^8.18.2",
+    "xpress": "^2.4.6"
+  },
+  "keywords": []
+}

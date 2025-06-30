@@ -1,0 +1,165 @@
+/* style.css */
+
+:root {
+  --main-bg: #16182b;
+  --panel-bg: #23244a;
+  --card-bg: #212245;
+  --primary: #4f8cff;
+  --accent: #ffb85c;
+  --button: #4f8cff;
+  --button-hover: #3c6edc;
+  --button-active: #355db2;
+  --text: #f5f6fa;
+  --text-muted: #d1d4e3;
+  --border: #2a2c54;
+  --input-bg: #27285a;
+  --input-border: #3b3c6d;
+}
+
+body {
+  background: var(--main-bg);
+  color: var(--text);
+  font-family: 'Segoe UI', Arial, sans-serif;
+  min-height: 100vh;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+#controlPanel {
+  background: var(--panel-bg);
+  padding: 2.2rem 2.8rem 2.2rem 2.8rem;
+  margin: 3rem 0;
+  border-radius: 1.5rem;
+  box-shadow: 0 8px 32px 0 rgba(60, 62, 136, 0.18);
+  min-width: 350px;
+  max-width: 400px;
+  width: 95vw;
+  border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 1.3rem;
+}
+
+h2, h3 {
+  text-align: center;
+  font-weight: 600;
+  margin-bottom: 0.8rem;
+  letter-spacing: 1.2px;
+}
+
+label {
+  font-size: 1rem;
+  color: var(--text-muted);
+  margin-bottom: 0.3rem;
+  display: block;
+}
+
+input[type="text"],
+input[type="file"],
+select {
+  background: var(--input-bg);
+  color: var(--text);
+  border: 1px solid var(--input-border);
+  border-radius: 0.7rem;
+  padding: 0.5rem 0.9rem;
+  margin-top: 0.3rem;
+  margin-bottom: 0.9rem;
+  font-size: 1rem;
+  width: 100%;
+  box-sizing: border-box;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+input[type="text"]:focus,
+select:focus {
+  border-color: var(--primary);
+}
+
+input[type="range"] {
+  width: 100%;
+  margin: 0.7rem 0 1rem 0;
+  accent-color: var(--accent);
+}
+
+button,
+.btn-group button {
+  background: var(--button);
+  color: var(--text);
+  border: none;
+  padding: 0.7rem 1.3rem;
+  margin: 0.15rem 0.16rem;
+  border-radius: 0.8rem;
+  font-size: 1rem;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: 0 1px 8px 0 rgba(72, 106, 226, 0.13);
+  transition: background 0.18s, transform 0.09s;
+}
+
+button:hover,
+.btn-group button:hover {
+  background: var(--button-hover);
+  transform: translateY(-2px) scale(1.04);
+}
+
+button:active,
+.btn-group button:active {
+  background: var(--button-active);
+  transform: scale(0.98);
+}
+
+.btn-group {
+  display: flex;
+  gap: 0.5rem;
+  margin: 0.4rem 0 1.2rem 0;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+#annotationList {
+  background: var(--card-bg);
+  min-height: 55px;
+  border-radius: 0.7rem;
+  border: 1px solid var(--border);
+  padding: 1rem;
+  margin: 0.8rem 0 1.5rem 0;
+  font-size: 0.97rem;
+  color: var(--text-muted);
+  overflow-y: auto;
+  max-height: 130px;
+}
+
+form#uploadForm {
+  background: var(--card-bg);
+  border-radius: 0.7rem;
+  border: 1px solid var(--border);
+  padding: 1.1rem;
+  margin-top: 0.7rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+#uploadResult {
+  margin-top: 0.7rem;
+  min-height: 28px;
+  color: var(--accent);
+  font-weight: 500;
+  text-align: center;
+}
+
+@media (max-width: 600px) {
+  #controlPanel {
+    padding: 1rem 0.4rem;
+    margin: 1.2rem 0;
+    min-width: unset;
+    max-width: 98vw;
+  }
+  .btn-group {
+    gap: 0.2rem;
+  }
+}

@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Annotation Controller</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="controlPanel">
+    <h2>Annotation Controller</h2>
+    <div>
+      <label>Room Code: </label>
+      <input type="text" id="roomCode" readonly />
+    </div>
+    <label>Choose Shape:</label>
+    <select id="shapeSelector">
+      <option>Circle</option>
+      <option>Square</option>
+      <option>Arrow</option>
+      <option>Triangle</option>
+    </select><br>
+    <button onclick="sendCreate()">Create Annotation</button>
+    <div class="btn-group">
+      <button onclick="setMode('position')">Position</button>
+      <button onclick="setMode('rotation')">Rotation</button>
+      <button onclick="setMode('scale')">Scale</button>
+    </div>
+    <p>Mobile Controls:</p>
+    <div class="btn-group">
+      <button onclick="move('w')">↑</button>
+      <button onclick="move('a')">←</button>
+      <button onclick="move('s')">↓</button>
+      <button onclick="move('d')">→</button>
+    </div>
+    <br>
+    <label>Sensitivity: </label>
+    <input type="range" id="sensitivity" min="0.01" max="0.2" step="0.01" value="0.05">
+    <div id="annotationList"></div>
+    <h3>Upload Reference Material</h3>
+    <form id="uploadForm">
+      <label>Type: </label>
+      <select id="uploadType" name="type">
+        <option value="pdf">PDF</option>
+        <option value="image">Image</option>
+        <option value="video">Video</option>
+      </select><br>
+      <input type="file" name="file" required><br>
+      <button type="submit">Upload</button>
+    </form>
+    <div id="uploadResult"></div>
+  </div>
+  <script src="main.js"></script>
+</body>
+</html>
