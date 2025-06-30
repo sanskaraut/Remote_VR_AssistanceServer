@@ -23,17 +23,23 @@ const USING_EC2 = process.env.USING_EC2 === 'true';
 // Utility to find a free port
 function getAvailablePort(defaultPort, cb) {
   const server = net.createServer();
-  server.listen(defaultPort, () => {
-    const port = server.address().port;
+  let called = false;
+
+  // On error (e.g. port in use), try random open port
+  server.on('error', () => {
+    server.listen(0);
+  });
+
+  server.on('listening', () => {
+    if (called) return;
+    called = true;
+    const port = server.address() ? server.address().port : defaultPort;
     server.close(() => cb(port));
   });
-  server.on('error', () => {
-    server.listen(0, () => {
-      const port = server.address().port;
-      server.close(() => cb(port));
-    });
-  });
+
+  server.listen(defaultPort);
 }
+
 
 let s3;
 if (USE_S3) {
