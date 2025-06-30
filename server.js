@@ -6,6 +6,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const { exec } = require('child_process');
+const net = require('net');
 const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
 const { v4: uuidv4 } = require('uuid');
 
@@ -19,10 +20,20 @@ const AWS_S3_BUCKET = process.env.AWS_S3_BUCKET;
 const NGROK_URL = process.env.NGROK_URL;
 const USING_EC2 = process.env.USING_EC2 === 'true';
 
-const app = express();
-const server = http.createServer(app);
-
-app.use(express.static(path.join(__dirname, 'public')));
+// Utility to find a free port
+function getAvailablePort(defaultPort, cb) {
+  const server = net.createServer();
+  server.listen(defaultPort, () => {
+    const port = server.address().port;
+    server.close(() => cb(port));
+  });
+  server.on('error', () => {
+    server.listen(0, () => {
+      const port = server.address().port;
+      server.close(() => cb(port));
+    });
+  });
+}
 
 let s3;
 if (USE_S3) {
@@ -35,7 +46,6 @@ if (USE_S3) {
   });
 }
 
-// Multer config: store all temp uploads in tmp (they get moved)
 const upload = multer({ dest: 'uploads/tmp' });
 
 // Room management
@@ -55,9 +65,23 @@ function getPublicUrl(roomCode, type, fileName) {
   return `${UPLOADS_HOST}:${UPLOADS_PORT}/uploads/${roomCode}/${type}/${fileName}`;
 }
 
-// ---------------------------
-// --- IMAGE UPLOAD ROUTE ----
-// ---------------------------
+// --- EC2 public DNS/IP helper ---
+function getEc2Public(cb) {
+  exec("curl -s http://169.254.169.254/latest/meta-data/public-hostname", (err, stdout) => {
+    if (!err && stdout && stdout.trim()) return cb(stdout.trim());
+    exec("curl -s https://api.ipify.org", (err2, stdout2) => {
+      if (!err2 && stdout2 && stdout2.trim()) return cb(stdout2.trim());
+      cb('YOUR_EC2_PUBLIC_IP_OR_DNS');
+    });
+  });
+}
+
+// --- Express for Uploads API only ---
+const app = express();
+
+// No app.use(express.static(...)) — NO FRONTEND HOSTING
+
+// --- IMAGE UPLOAD ROUTE ---
 app.post('/upload/image', upload.single('file'), async (req, res) => {
   const file = req.file;
   const roomCode = (req.body.annotationRoomCode || '').toUpperCase();
@@ -108,9 +132,7 @@ app.post('/upload/image', upload.single('file'), async (req, res) => {
   }
 });
 
-// ---------------------------
-// --- VIDEO UPLOAD ROUTE ----
-// ---------------------------
+// --- VIDEO UPLOAD ROUTE ---
 app.post('/upload/video', upload.single('file'), async (req, res) => {
   const file = req.file;
   const roomCode = (req.body.annotationRoomCode || '').toUpperCase();
@@ -161,9 +183,7 @@ app.post('/upload/video', upload.single('file'), async (req, res) => {
   }
 });
 
-// ---------------------------
-// --- PDF UPLOAD & CONVERT --
-// ---------------------------
+// --- PDF UPLOAD & CONVERT ---
 app.post('/upload/pdf', upload.single('file'), async (req, res) => {
   const file = req.file;
   const roomCode = (req.body.annotationRoomCode || '').toUpperCase();
@@ -176,7 +196,6 @@ app.post('/upload/pdf', upload.single('file'), async (req, res) => {
   const outputDir = path.join(getRoomUploadDir(roomCode, 'pdf'), pdfId);
   fs.mkdirSync(outputDir, { recursive: true });
 
-  // Convert PDF to PNG images (one per page) in outputDir
   const cmd = `pdftoppm "${file.path}" "${outputDir}/page" -png`;
   console.log(`[PDF] Running command: ${cmd}`);
 
@@ -190,7 +209,6 @@ app.post('/upload/pdf', upload.single('file'), async (req, res) => {
         stderr: stderr,
       });
     }
-    // List all generated pages
     const pages = fs.readdirSync(outputDir).filter(f => f.endsWith('.png')).sort();
     const urls = [];
     console.log(`[PDF] Converted ${pages.length} pages for room ${roomCode}`);
@@ -235,125 +253,114 @@ app.post('/upload/pdf', upload.single('file'), async (req, res) => {
       timestamp: new Date().toISOString(),
     };
 
-    // Broadcast to Unity clients in this room
     if (annotationRooms[roomCode]) {
       annotationRooms[roomCode].unity.forEach((client) => {
         if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify(fileMessage));
       });
     }
-
-    // Return to web client (also send array)
     return res.json({ success: true, type: 'pdf', urls, pageCount: urls.length, pdfId });
   });
 });
 
-// --- Function to get EC2 Public IP/DNS ---
-function getEc2Public(cb) {
-  exec("curl -s http://169.254.169.254/latest/meta-data/public-hostname", (err, stdout) => {
-    if (!err && stdout && stdout.trim()) return cb(stdout.trim());
-    // fallback: external service
-    exec("curl -s https://api.ipify.org", (err2, stdout2) => {
-      if (!err2 && stdout2 && stdout2.trim()) return cb(stdout2.trim());
-      cb('YOUR_EC2_PUBLIC_IP_OR_DNS');
-    });
-  });
-}
-
-// ---- Main HTTP Server ----
-server.listen(PORT_HTTP, () => {
-  if (USING_EC2) {
-    getEc2Public((publicHost) => {
-      const httpUrl = `http://${publicHost}:${PORT_HTTP}`;
-      console.log(`🌐 HTTP/API server running at: ${httpUrl}`);
-      console.log(`\nUse this URL in your browser or API clients.`);
-    });
-  } else {
-    console.log(`🌐 HTTP/API server running at: http://localhost:${PORT_HTTP}`);
-  }
-});
-
-// ---- WebSocket Server ----
-const wss = new WebSocket.Server({ port: PORT_WS });
-if (USING_EC2) {
-  getEc2Public((publicHost) => {
-    const wsUrl = `ws://${publicHost}:${PORT_WS}`;
-    console.log(`🚀 WebSocket server running at: ${wsUrl}`);
-    console.log(`\n🔗 Use this WebSocket URL in your frontend/Unity: "${wsUrl}"`);
-    console.log('Make sure your EC2 security group allows inbound TCP on this port!');
-  });
-} else {
-  console.log(`🚀 WebSocket server running at: ws://localhost:${PORT_WS}`);
-}
-
-// ---- ROOM MANAGEMENT ----
-wss.on('connection', (ws) => {
-  let annotationRoomCode = null;
-  let clientType = null;
-
-  ws.on('message', (message) => {
-    try {
-      const msg = JSON.parse(message);
-
-      // Web client joins room
-      if (msg.client === 'web' && msg.annotationRoomCode) {
-        clientType = 'web';
-        annotationRoomCode = msg.annotationRoomCode.toUpperCase();
-        if (!annotationRooms[annotationRoomCode]) {
-          annotationRooms[annotationRoomCode] = { unity: new Set(), web: new Set() };
-        }
-        annotationRooms[annotationRoomCode].web.add(ws);
-        ws.send(JSON.stringify({ type: 'room_created', annotationRoomCode }));
-        return;
-      }
-      // Unity client joins room
-      if (msg.client === 'unity' && msg.annotationRoomCode) {
-        clientType = 'unity';
-        annotationRoomCode = msg.annotationRoomCode.toUpperCase();
-        if (!annotationRooms[annotationRoomCode]) {
-          ws.send(JSON.stringify({ type: 'error', message: 'Invalid annotationRoomCode' }));
-          ws.close();
-          return;
-        }
-        annotationRooms[annotationRoomCode].unity.add(ws);
-        ws.send(JSON.stringify({ type: 'room_joined', annotationRoomCode }));
-        return;
-      }
-      // Forward web-to-unity in this room only
-      if (clientType === 'web' && annotationRoomCode && annotationRooms[annotationRoomCode]) {
-        annotationRooms[annotationRoomCode].unity.forEach((client) => {
-          if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify(msg));
-        });
-      }
-    } catch (err) {
-      console.error('❌ Failed to parse message:', err);
+// ---- Main HTTP Server (NO STATIC) ----
+getAvailablePort(PORT_HTTP, (actualPort) => {
+  const server = http.createServer(app);
+  server.listen(actualPort, () => {
+    if (USING_EC2) {
+      getEc2Public((publicHost) => {
+        const httpUrl = `http://${publicHost}:${actualPort}`;
+        console.log(`🌐 HTTP/API server running at: ${httpUrl}`);
+        console.log(`\nUse this URL in your browser or API clients.`);
+      });
+    } else {
+      console.log(`🌐 HTTP/API server running at: http://localhost:${actualPort}`);
     }
   });
 
-  ws.on('close', () => {
-    if (annotationRoomCode && annotationRooms[annotationRoomCode]) {
-      if (clientType === 'unity') annotationRooms[annotationRoomCode].unity.delete(ws);
-      if (clientType === 'web') annotationRooms[annotationRoomCode].web.delete(ws);
-
-      // If no clients left in the room, clean up uploads (local mode only)
-      if (
-        annotationRooms[annotationRoomCode].unity.size === 0 &&
-        annotationRooms[annotationRoomCode].web.size === 0
-      ) {
-        if (!USE_S3) {
-          const dir = path.join(__dirname, 'uploads', annotationRoomCode);
-          fs.rm(dir, { recursive: true, force: true }, (err) => {
-            if (err) console.error(`Error cleaning up uploads for ${annotationRoomCode}:`, err);
-            else console.log(`🧹 Deleted uploads for room: ${annotationRoomCode}`);
-          });
-        }
-        delete annotationRooms[annotationRoomCode];
-        console.log(`🧹 Room ${annotationRoomCode} deleted`);
-      }
+  // ---- WebSocket Server ----
+  getAvailablePort(PORT_WS, (actualWsPort) => {
+    const wss = new WebSocket.Server({ port: actualWsPort });
+    if (USING_EC2) {
+      getEc2Public((publicHost) => {
+        const wsUrl = `ws://${publicHost}:${actualWsPort}`;
+        console.log(`🚀 WebSocket server running at: ${wsUrl}`);
+        console.log(`\n🔗 Use this WebSocket URL in your frontend/Unity: "${wsUrl}"`);
+        console.log('Make sure your EC2 security group allows inbound TCP on this port!');
+      });
+    } else {
+      console.log(`🚀 WebSocket server running at: ws://localhost:${actualWsPort}`);
     }
+
+    // ---- ROOM MANAGEMENT ----
+    wss.on('connection', (ws) => {
+      let annotationRoomCode = null;
+      let clientType = null;
+
+      ws.on('message', (message) => {
+        try {
+          const msg = JSON.parse(message);
+
+          // Web client joins room
+          if (msg.client === 'web' && msg.annotationRoomCode) {
+            clientType = 'web';
+            annotationRoomCode = msg.annotationRoomCode.toUpperCase();
+            if (!annotationRooms[annotationRoomCode]) {
+              annotationRooms[annotationRoomCode] = { unity: new Set(), web: new Set() };
+            }
+            annotationRooms[annotationRoomCode].web.add(ws);
+            ws.send(JSON.stringify({ type: 'room_created', annotationRoomCode }));
+            return;
+          }
+          // Unity client joins room
+          if (msg.client === 'unity' && msg.annotationRoomCode) {
+            clientType = 'unity';
+            annotationRoomCode = msg.annotationRoomCode.toUpperCase();
+            if (!annotationRooms[annotationRoomCode]) {
+              ws.send(JSON.stringify({ type: 'error', message: 'Invalid annotationRoomCode' }));
+              ws.close();
+              return;
+            }
+            annotationRooms[annotationRoomCode].unity.add(ws);
+            ws.send(JSON.stringify({ type: 'room_joined', annotationRoomCode }));
+            return;
+          }
+          // Forward web-to-unity in this room only
+          if (clientType === 'web' && annotationRoomCode && annotationRooms[annotationRoomCode]) {
+            annotationRooms[annotationRoomCode].unity.forEach((client) => {
+              if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify(msg));
+            });
+          }
+        } catch (err) {
+          console.error('❌ Failed to parse message:', err);
+        }
+      });
+
+      ws.on('close', () => {
+        if (annotationRoomCode && annotationRooms[annotationRoomCode]) {
+          if (clientType === 'unity') annotationRooms[annotationRoomCode].unity.delete(ws);
+          if (clientType === 'web') annotationRooms[annotationRoomCode].web.delete(ws);
+
+          if (
+            annotationRooms[annotationRoomCode].unity.size === 0 &&
+            annotationRooms[annotationRoomCode].web.size === 0
+          ) {
+            if (!USE_S3) {
+              const dir = path.join(__dirname, 'uploads', annotationRoomCode);
+              fs.rm(dir, { recursive: true, force: true }, (err) => {
+                if (err) console.error(`Error cleaning up uploads for ${annotationRoomCode}:`, err);
+                else console.log(`🧹 Deleted uploads for room: ${annotationRoomCode}`);
+              });
+            }
+            delete annotationRooms[annotationRoomCode];
+            console.log(`🧹 Room ${annotationRoomCode} deleted`);
+          }
+        }
+      });
+    });
   });
 });
 
-// ---- Separate Static File Server for Uploads ----
+// ---- Separate Static File Server for Uploads (local mode only) ----
 if (!USE_S3) {
   const uploadsApp = express();
   const uploadsPath = path.join(__dirname, 'uploads');
